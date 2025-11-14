@@ -1,0 +1,7 @@
+{
+  "name": "Robo AI - Auto Book Generator",
+  "description": "A web application that assists users in creating complete books from a simple idea to a fully formatted manuscript using the Google Gemini API. It features a step-by-step wizard for conceptualization, outlining, cover design, chapter writing, and final book assembly.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
