@@ -41,6 +41,24 @@ const App: React.FC = () => {
   const [bookHistory, setBookHistory] = useState<BookHistoryEntry[]>([]);
   const [viewingHistory, setViewingHistory] = useState<BookHistoryEntry | null>(null);
 
+  // === Dropdown Options (Alphabetized) ===
+  const genres = useMemo(() => [
+    'Biographies & Memoirs', 'Business & Money', 'Cookbooks', 'Education & Test Prep', 'Fantasy',
+    'Health, Fitness & Dieting', 'History', 'Horror', 'Literary Fiction', 'Mystery', 'Non-Fiction',
+    'Parenting & Relationships', 'Religion & Spirituality', 'Romance', 'Science Fiction',
+    'Self-Help & Personal Development', 'Thriller', 'True Crime'
+  ], []);
+
+  const categories = useMemo(() => [
+    'Contemporary Romance', 'Cookbook', 'Detective Novel', 'Dystopian Fiction', 'Epic Fantasy', 'Guide',
+    'Historical Romance', 'Memoir', 'Novel', 'Novella', 'Psychological Thriller', 'Romantic Suspense',
+    'Space Opera', 'Technical Manual', 'Textbook'
+  ], []);
+
+  const tones = useMemo(() => [
+    'Epic', 'Humorous', 'Informative', 'Serious', 'Suspenseful', 'Whimsical'
+  ], []);
+
   // === Persistence (Local Storage) ===
   const saveStateToLocalStorage = useCallback(() => {
     const state = {
@@ -234,6 +252,10 @@ const App: React.FC = () => {
       <p className="text-center text-indigo-100/70 mb-8">Define the core concept of your masterpiece.</p>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="form-group md:col-span-2">
+              <label htmlFor="author">Author's Name <span className="text-red-400">*</span></label>
+              <input type="text" id="author" value={author} onChange={e => setAuthor(e.target.value)} />
+          </div>
           <div className="form-group">
               <label htmlFor="title">Title <span className="text-red-400">*</span></label>
               <input type="text" id="title" value={title} onChange={e => setTitle(e.target.value)} />
@@ -241,10 +263,6 @@ const App: React.FC = () => {
           <div className="form-group">
               <label htmlFor="subtitle">Subtitle</label>
               <input type="text" id="subtitle" value={subtitle} onChange={e => setSubtitle(e.target.value)} />
-          </div>
-          <div className="form-group md:col-span-2">
-              <label htmlFor="author">Author's Name <span className="text-red-400">*</span></label>
-              <input type="text" id="author" value={author} onChange={e => setAuthor(e.target.value)} />
           </div>
           <div className="form-group md:col-span-2">
               <label htmlFor="description" className="flex justify-between items-center">
@@ -260,50 +278,19 @@ const App: React.FC = () => {
           <div className="form-group">
               <label htmlFor="genre">Genre</label>
               <select id="genre" value={genre} onChange={e => setGenre(e.target.value)}>
-                  <option>Science Fiction</option>
-                  <option>Fantasy</option>
-                  <option>Mystery</option>
-                  <option>Thriller</option>
-                  <option>Romance</option>
-                  <option>Horror</option>
-                  <option>Literary Fiction</option>
-                  <option>True Crime</option>
-                  <option>Non-Fiction</option>
-                  <option>Self-Help & Personal Development</option>
-                  <option>Business & Money</option>
-                  <option>Health, Fitness & Dieting</option>
-                  <option>Biographies & Memoirs</option>
-                  <option>Cookbooks</option>
-                  <option>Parenting & Relationships</option>
-                  <option>History</option>
-                  <option>Religion & Spirituality</option>
-                  <option>Education & Test Prep</option>
+                  {genres.map(g => <option key={g} value={g}>{g}</option>)}
               </select>
           </div>
            <div className="form-group">
               <label htmlFor="category">Category</label>
               <select id="category" value={category} onChange={e => setCategory(e.target.value)}>
-                  <option>Novel</option>
-                  <option>Novella</option>
-                  <option>Contemporary Romance</option>
-                  <option>Historical Romance</option>
-                  <option>Romantic Suspense</option>
-                  <option>Psychological Thriller</option>
-                  <option>Detective Novel</option>
-                  <option>Epic Fantasy</option>
-                  <option>Dystopian Fiction</option>
-                  <option>Space Opera</option>
-                  <option>Memoir</option>
-                  <option>Guide</option>
-                  <option>Cookbook</option>
-                  <option>Textbook</option>
-                  <option>Technical Manual</option>
+                  {categories.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
           </div>
            <div className="form-group">
               <label htmlFor="tone">Tone</label>
               <select id="tone" value={tone} onChange={e => setTone(e.target.value)}>
-                  <option>Epic</option><option>Humorous</option><option>Serious</option><option>Informative</option><option>Suspenseful</option><option>Whimsical</option>
+                  {tones.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
           </div>
           <div className="form-group">
@@ -411,7 +398,14 @@ const App: React.FC = () => {
                 </div>
             ))}
         </div>
-        <button onClick={() => setAppStep(AppStep.COVERS)} className="btn-secondary mt-8 mx-auto block">Back to Covers</button>
+        <div className="flex flex-col sm:flex-row gap-4 mt-8 justify-center">
+          <button onClick={() => setAppStep(AppStep.CONFIG)} className="btn-secondary">
+            1. Configure Your Book
+          </button>
+          <button onClick={() => setAppStep(AppStep.COVERS)} className="btn-secondary">
+            Back to Covers
+          </button>
+        </div>
       </>
   );
 
