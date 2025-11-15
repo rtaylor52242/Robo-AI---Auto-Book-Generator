@@ -14,6 +14,7 @@ export interface Chapter {
 export interface BookHistoryEntry {
   id: string;
   title: string;
+  subtitle: string;
   author: string;
   content: string;
   frontCoverImage: string;

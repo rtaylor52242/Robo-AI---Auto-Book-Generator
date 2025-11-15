@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { XMarkIcon, DownloadIcon } from './icons';
 
@@ -5,20 +6,80 @@ declare const marked: any;
 declare const jspdf: any;
 declare const html2canvas: any;
 
+// Fix for window.docx not being recognized by TypeScript
+declare global {
+  interface Window {
+    docx: any;
+  }
+}
+
 interface StorybookViewerProps {
   bookContent: string;
   bookTitle: string;
+  subtitle: string;
   author: string;
   frontCoverImage: string;
   onClose: () => void;
 }
 
-export const StorybookViewer: React.FC<StorybookViewerProps> = ({ bookContent, bookTitle, author, frontCoverImage, onClose }) => {
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+const paperTextureUrl = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiB2aWV3Qm94PSIwIDAgMTAwIDEwMCI+PGZpbHRlciBpZD0ibm9pc2UiPjxmZVR1cmJ1bGVuY2UgdHlwZT0iZnJhY3RhbE5vaXNlIiBiYXNlRnJlcXVlbmN5PSIwLjgiIG51bU9jdGF2ZXM9IjQiIHN0aXRjaFRpbGVzPSJzdGl0Y2giLz48L2ZpbHRlciA+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsdGVyPSJ1cmwoI25vaXNlKSIgb3BhY2l0eT0iMC4wOCIvPjwvc3ZnPg==";
+const woodTextureUrl = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIj48ZmlsdGVyIGlkPSJ3b29kIiB4PSIwIiB5PSIwIj48ZmVUdXJidWxlbmNlIHR5cGU9ImZyYWN0YWxOb2lzZSIgYmFzZUZyZXF1ZW5jeT0iMC4wMiAwLjciIG51bU9jdGF2ZXM9IjMiIHN0aXRjaFRpbGVzPSJzdGl0Y2giLz48L2ZpbHRlcj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWx0ZXXI9InVybCgjd29vZCkiIG9wYWNpdHk9IjAuMSIvPjwvc3ZnPg==";
+
+// Singleton promise to ensure the script is loaded only once.
+let docxPromise: Promise<void> | null = null;
+
+const loadDocxScript = (): Promise<void> => {
+  // If window.docx is already available, the script is loaded.
+  if (window.docx) {
+    return Promise.resolve();
+  }
+
+  // If the script is already being loaded, return the existing promise.
+  if (docxPromise) {
+    return docxPromise;
+  }
+
+  // Create a new promise for loading the script.
+  docxPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/docx@8.5.0/build/index.js';
+    script.async = true;
+
+    script.onload = () => {
+      if (window.docx) {
+        resolve();
+      } else {
+        // This is a safeguard for an unexpected script behavior.
+        docxPromise = null; // Allow retry
+        reject(new Error("Script loaded but 'window.docx' was not found."));
+      }
+    };
+
+    script.onerror = () => {
+      // On error, reset the promise to allow retrying, and reject.
+      docxPromise = null;
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+      reject(new Error("The 'docx' library script failed to load."));
+    };
+
+    document.body.appendChild(script);
+  });
+
+  return docxPromise;
+};
+
+
+export const StorybookViewer: React.FC<StorybookViewerProps> = ({ bookContent, bookTitle, subtitle, author, frontCoverImage, onClose }) => {
+  const [currentPage, setCurrentPage] = useState(0); // 0: Cover, 1: Spread 1-2, etc.
+  const [totalContentPages, setTotalContentPages] = useState(1);
   const [htmlContent, setHtmlContent] = useState('');
-  const contentRef = useRef<HTMLDivElement>(null);
-  const viewerRef = useRef<HTMLDivElement>(null);
+  
+  const contentMeasureRef = useRef<HTMLDivElement>(null);
+  const pageContainerRef = useRef<HTMLDivElement>(null);
+  const [pageHeight, setPageHeight] = useState(0);
+  const [isAnimating, setIsAnimating] = useState(false);
   
   const [exporting, setExporting] = useState<string | null>(null);
 
@@ -29,27 +90,67 @@ export const StorybookViewer: React.FC<StorybookViewerProps> = ({ bookContent, b
   }, [bookContent]);
 
   const calculatePages = useCallback(() => {
-    if (contentRef.current && viewerRef.current) {
-      const contentHeight = contentRef.current.scrollHeight;
-      const viewerHeight = viewerRef.current.clientHeight;
-      const pages = Math.ceil(contentHeight / viewerHeight);
-      setTotalPages(pages > 0 ? pages : 1);
+    const measureElement = contentMeasureRef.current?.parentElement as HTMLDivElement;
+    if (contentMeasureRef.current && pageContainerRef.current && measureElement) {
+        // To get an accurate measurement, we temporarily force the hidden measurement
+        // element's height to match the visible page container's height.
+        measureElement.style.height = `${pageContainerRef.current.clientHeight}px`;
+
+        const style = window.getComputedStyle(measureElement);
+        const paddingTop = parseFloat(style.paddingTop);
+        const paddingBottom = parseFloat(style.paddingBottom);
+
+        const pageClientHeight = measureElement.clientHeight;
+        const contentAreaHeight = pageClientHeight - paddingTop - paddingBottom;
+        
+        // After measurement, reset the height so scrollHeight gives the total content height.
+        measureElement.style.height = '';
+
+        if (contentAreaHeight > 0) {
+            setPageHeight(contentAreaHeight);
+            
+            const contentHeight = contentMeasureRef.current.scrollHeight;
+            const pages = Math.ceil(contentHeight / contentAreaHeight);
+            setTotalContentPages(pages > 0 ? pages : 1);
+        }
     }
   }, [htmlContent]);
 
+
   useEffect(() => {
-    calculatePages();
+    const doCalculation = () => calculatePages();
+    // A timeout ensures that the layout has settled before we measure.
+    document.fonts.ready.then(doCalculation);
+    const timer = setTimeout(doCalculation, 150);
+
     const handleResize = () => calculatePages();
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    return () => {
+        clearTimeout(timer);
+        window.removeEventListener('resize', handleResize);
+    }
   }, [calculatePages]);
   
+  const totalSpreads = Math.ceil(totalContentPages / 2);
+
+  const changePage = (newPage: number) => {
+    setIsAnimating(true);
+    setTimeout(() => {
+        setCurrentPage(newPage);
+        setIsAnimating(false);
+    }, 250); // Corresponds to half of the animation duration
+  }
+
   const handleNextPage = () => {
-    setCurrentPage((prev) => Math.min(prev + 1, totalPages));
+    if (currentPage <= totalSpreads) {
+      changePage(currentPage + 1);
+    }
   };
 
   const handlePrevPage = () => {
-    setCurrentPage((prev) => Math.max(prev - 1, 1));
+    if (currentPage > 0) {
+      changePage(currentPage - 1);
+    }
   };
   
   const handleExport = async (format: 'pdf' | 'docx' | 'html' | 'md') => {
@@ -61,7 +162,7 @@ export const StorybookViewer: React.FC<StorybookViewerProps> = ({ bookContent, b
             case 'html': await exportToHTML(); break;
             case 'md': await exportToMD(); break;
         }
-    } catch (e) {
+    } catch (e: any) {
         console.error(`Failed to export to ${format}`, e);
         alert(`Failed to export to ${format}. See console for details.`);
     } finally {
@@ -71,74 +172,131 @@ export const StorybookViewer: React.FC<StorybookViewerProps> = ({ bookContent, b
 
   const exportToPDF = async () => {
     const { jsPDF } = jspdf;
-    const pdf = new jsPDF('p', 'px', 'a4');
-    const pageContainer = viewerRef.current;
-    if (!pageContainer || !contentRef.current) return;
-    
-    // Add cover page
+    const pdf = new jsPDF({
+        orientation: 'p',
+        unit: 'pt', // Use points for font sizing
+        format: 'a4'
+    });
+
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 40;
+    const contentWidth = pageWidth - margin * 2;
+
+    // Page 1: Cover Page
     if (frontCoverImage) {
         const img = new Image();
         img.src = `data:image/jpeg;base64,${frontCoverImage}`;
-        await new Promise(resolve => img.onload = resolve);
-        pdf.addImage(img, 'JPEG', 40, 40, 365, 486);
-        pdf.setFontSize(24);
-        pdf.text(bookTitle, pdf.internal.pageSize.getWidth() / 2, 550, { align: 'center' });
-        pdf.setFontSize(16);
-        pdf.text(`by ${author}`, pdf.internal.pageSize.getWidth() / 2, 580, { align: 'center' });
+        await new Promise(resolve => { img.onload = resolve; img.onerror = resolve; });
+        
+        const imgWidth = contentWidth * 0.8;
+        const imgHeight = imgWidth * (4/3); // Maintain 3:4 aspect ratio
+        const imgX = (pageWidth - imgWidth) / 2;
+        const imgY = margin * 1.5;
+        pdf.addImage(img, 'JPEG', imgX, imgY, imgWidth, imgHeight);
+
+        pdf.setFontSize(24).setFont(undefined, 'bold');
+        pdf.text(bookTitle, pageWidth / 2, imgY + imgHeight + 40, { align: 'center' });
+
+        pdf.setFontSize(16).setFont(undefined, 'normal');
+        pdf.text(`by ${author}`, pageWidth / 2, imgY + imgHeight + 70, { align: 'center' });
+    } else {
+        pdf.setFontSize(32).setFont(undefined, 'bold');
+        pdf.text(bookTitle, pageWidth / 2, pageHeight / 3, { align: 'center' });
+        
+        pdf.setFontSize(20).setFont(undefined, 'normal');
+        pdf.text(`by ${author}`, pageWidth / 2, pageHeight / 3 + 40, { align: 'center' });
     }
 
-    const originalScrollTop = pageContainer.scrollTop;
-    for (let i = 0; i < totalPages; i++) {
+    // Subsequent pages: Content
+    if (bookContent) {
         pdf.addPage();
-        pageContainer.scrollTop = i * pageContainer.clientHeight;
-        await new Promise(resolve => setTimeout(resolve, 100)); // Allow render
-        const canvas = await html2canvas(pageContainer, {
-            scrollY: -window.scrollY,
-            useCORS: true,
-            height: pageContainer.clientHeight,
-            y: pageContainer.clientHeight * i,
-        });
-        const imgData = canvas.toDataURL('image/png');
-        pdf.addImage(imgData, 'PNG', 0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight());
+        let cursorY = margin;
+        const lines = bookContent.split('\n');
+
+        for (const line of lines) {
+            let text = line.trim();
+            let isHeader1 = false, isHeader2 = false, isHeader3 = false;
+
+            if (text.startsWith('# ')) { isHeader1 = true; text = text.substring(2); }
+            else if (text.startsWith('## ')) { isHeader2 = true; text = text.substring(3); }
+            else if (text.startsWith('### ')) { isHeader3 = true; text = text.substring(4); }
+            
+            pdf.setFontSize(isHeader1 ? 18 : isHeader2 ? 14 : isHeader3 ? 12 : 12)
+               .setFont(undefined, isHeader1 || isHeader2 || isHeader3 ? 'bold' : 'normal');
+            
+            if (isHeader1 && cursorY > margin) cursorY += 20;
+            else if (isHeader2 && cursorY > margin) cursorY += 15;
+
+            const splitText = pdf.splitTextToSize(text, contentWidth);
+            const textHeight = splitText.length * (pdf.getFontSize() * 1.15);
+            
+            if (cursorY + textHeight > pageHeight - margin) {
+                pdf.addPage();
+                cursorY = margin;
+            }
+
+            pdf.text(splitText, margin, cursorY);
+            cursorY += textHeight;
+        }
     }
-    
-    pageContainer.scrollTop = originalScrollTop;
-    pdf.deletePage(1); // remove blank page
+
     pdf.save(`${bookTitle}.pdf`);
   }
 
   const exportToDOCX = async () => {
-      const { Document, Packer, Paragraph, TextRun, HeadingLevel } = (window as any).docx;
-      const paragraphs: any[] = [];
-      
-      bookContent.split('\n').forEach(line => {
-          if (line.startsWith('# ')) {
-              paragraphs.push(new Paragraph({ text: line.substring(2), heading: HeadingLevel.HEADING_1 }));
-          } else if (line.startsWith('## ')) {
-              paragraphs.push(new Paragraph({ text: line.substring(3), heading: HeadingLevel.HEADING_2 }));
-          } else if (line.startsWith('### ')) {
-              paragraphs.push(new Paragraph({ text: line.substring(4), heading: HeadingLevel.HEADING_3 }));
-          } else {
-              paragraphs.push(new Paragraph({ children: [new TextRun(line)] }));
-          }
-      });
+    try {
+        await loadDocxScript();
+    } catch (e: any) {
+        const errorMsg = "Failed to export to DOCX: The required library could not be loaded. Please check your internet connection and try again.";
+        console.error(errorMsg, e);
+        alert(errorMsg);
+        throw e; // Re-throw to be caught by the calling function's handler
+    }
 
-      const doc = new Document({
-          sections: [{
-              properties: {},
-              children: [
-                  new Paragraph({ text: bookTitle, heading: HeadingLevel.TITLE }),
-                  new Paragraph({ text: `by ${author}`, heading: HeadingLevel.HEADING_2 }),
-                  ...paragraphs
-              ],
-          }],
-      });
+    const { Document, Packer, Paragraph, TextRun, HeadingLevel } = window.docx;
+    
+    const docChildren: any[] = [
+        new Paragraph({ text: bookTitle, heading: HeadingLevel.TITLE }),
+        new Paragraph({ text: `by ${author}`, heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({}) // Spacer paragraph
+    ];
 
-      const blob = await Packer.toBlob(doc);
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `${bookTitle}.docx`;
-      link.click();
+    // The image markdown line can be extremely long and may cause issues with the docx library.
+    // Since it can't be rendered as an image anyway, we filter it out.
+    const contentLines = bookContent.split('\n').filter(line => !line.startsWith('![Front Cover]'));
+
+    contentLines.forEach(line => {
+        const trimmedLine = line.trim();
+        
+        if (trimmedLine.startsWith('# ')) {
+            docChildren.push(new Paragraph({ text: trimmedLine.substring(2).trim(), heading: HeadingLevel.HEADING_1 }));
+        } else if (trimmedLine.startsWith('## ')) {
+            docChildren.push(new Paragraph({ text: trimmedLine.substring(3).trim(), heading: HeadingLevel.HEADING_2 }));
+        } else if (trimmedLine.startsWith('### ')) {
+            docChildren.push(new Paragraph({ text: trimmedLine.substring(4).trim(), heading: HeadingLevel.HEADING_3 }));
+        } else if (trimmedLine) {
+            docChildren.push(new Paragraph({ children: [new TextRun(trimmedLine)] }));
+        } else {
+            // Add an empty paragraph for spacing, which corresponds to an empty line in the source.
+            docChildren.push(new Paragraph({}));
+        }
+    });
+
+    const doc = new Document({
+        sections: [{
+            properties: {},
+            children: docChildren,
+        }],
+    });
+
+    const blob = await Packer.toBlob(doc);
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${bookTitle}.docx`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
 
   const exportToHTML = async () => {
@@ -178,44 +336,114 @@ export const StorybookViewer: React.FC<StorybookViewerProps> = ({ bookContent, b
       link.click();
   }
 
+  const leftPageNum = (currentPage - 1) * 2 + 1;
+  const rightPageNum = (currentPage - 1) * 2 + 2;
 
-  return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-        <div className="bg-gray-900 border border-indigo-500/30 rounded-lg shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col text-white relative">
-            <header className="flex items-center justify-between p-4 border-b border-gray-700">
-            <h2 className="text-xl font-bold text-indigo-300 truncate pr-4">{bookTitle}</h2>
-            <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-700">
-                <XMarkIcon className="w-6 h-6" />
-            </button>
-            </header>
-            <div className="flex-grow overflow-hidden relative" ref={viewerRef}>
-            <div
-                ref={contentRef}
-                className="font-lora text-lg p-8 md:p-12 leading-relaxed transition-transform duration-500 ease-in-out"
-                style={{ transform: `translateY(-${(currentPage - 1) * (viewerRef.current?.clientHeight || 0)}px)` }}
-                dangerouslySetInnerHTML={{ __html: htmlContent }}
-            ></div>
-            </div>
-            <footer className="flex items-center justify-between p-4 border-t border-gray-700">
-                <div className="flex items-center gap-2">
-                    <button onClick={() => handleExport('pdf')} disabled={!!exporting} className="btn-secondary text-sm">PDF</button>
-                    <button onClick={() => handleExport('docx')} disabled={!!exporting} className="btn-secondary text-sm">DOCX</button>
-                    <button onClick={() => handleExport('html')} disabled={!!exporting} className="btn-secondary text-sm">HTML</button>
-                    <button onClick={() => handleExport('md')} disabled={!!exporting} className="btn-secondary text-sm">MD</button>
-                </div>
-                <div className="flex items-center gap-4">
-                    <button onClick={handlePrevPage} disabled={currentPage === 1} className="disabled:opacity-50">Prev</button>
-                    <span className="text-sm font-mono">{currentPage} / {totalPages}</span>
-                    <button onClick={handleNextPage} disabled={currentPage === totalPages} className="disabled:opacity-50">Next</button>
-                </div>
-            </footer>
-            {exporting && (
-                <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-4">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-400"></div>
-                    <p className="text-indigo-300">{exporting}</p>
-                </div>
-            )}
-        </div>
+  // Render a hidden, full-height version of the content to measure it
+  const contentForMeasuring = (
+    <div className="absolute top-0 left-0 w-1/2 -z-10 opacity-0 pointer-events-none p-12">
+      <div ref={contentMeasureRef} className="prose max-w-none font-lora" dangerouslySetInnerHTML={{ __html: htmlContent }}/>
     </div>
   );
-};
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: `#3a2d27 url('${woodTextureUrl}')` }} onClick={onClose}>
+        {/* Hidden content for measurement */}
+        {contentForMeasuring}
+
+      <div className="relative w-full max-w-5xl h-[85vh] rounded-lg p-6 flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute top-3 right-3 p-2 text-white bg-black/50 rounded-full hover:bg-black/80 z-20">
+          <XMarkIcon className="w-6 h-6" />
+        </button>
+
+        {exporting && (
+            <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-30 rounded-lg">
+                <p className="text-white text-lg">{exporting}</p>
+            </div>
+        )}
+
+        <div className="flex-grow relative overflow-hidden flex justify-center items-center" ref={pageContainerRef}>
+          <div className={`transition-opacity duration-500 w-full h-full flex justify-center items-center ${isAnimating ? 'opacity-0' : 'opacity-100'}`}>
+            {/* Cover Page */}
+            {currentPage === 0 && (
+              <div className="relative w-1/2 h-full shadow-[0_25px_50px_-12px_rgba(0,0,0,0.75)] rounded-lg overflow-hidden">
+                <img src={`data:image/jpeg;base64,${frontCoverImage}`} alt="Front Cover" className="object-cover w-full h-full" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/40 flex flex-col items-center justify-center p-6 text-center">
+                    <h2 
+                        className="text-2xl md:text-4xl font-bold text-white font-lora" 
+                        style={{ textShadow: '0 2px 5px rgba(0,0,0,0.8)' }}
+                    >
+                        {bookTitle}
+                    </h2>
+                    {subtitle && (
+                      <p 
+                        className="text-base md:text-lg text-white/90 font-lora mt-2"
+                        style={{ textShadow: '0 1px 3px rgba(0,0,0,0.7)' }}
+                      >
+                        {subtitle}
+                      </p>
+                    )}
+                    <div className="w-1/4 h-px bg-white/50 my-4"></div>
+                    <p 
+                        className="text-xl md:text-2xl text-white font-lora"
+                        style={{ textShadow: '0 2px 5px rgba(0,0,0,0.8)' }}
+                    >
+                        {author}
+                    </p>
+                </div>
+              </div>
+            )}
+            
+            {/* Content Pages */}
+            {currentPage > 0 && (
+              <div className="flex w-full h-full book-spread shadow-[0_35px_60px_-15px_rgba(0,0,0,0.5)]">
+                {/* Left Page */}
+                <div className="w-1/2 p-12 bg-[#FBF6EE] text-black overflow-hidden font-lora relative rounded-l-lg shadow-[inset_-10px_0_15px_-10px_rgba(0,0,0,0.4)]" style={{ backgroundImage: `url('${paperTextureUrl}')`}}>
+                    <div style={{ transform: `translateY(-${(leftPageNum - 1) * pageHeight}px)`}}>
+                        <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: htmlContent }}/>
+                    </div>
+                    <p className="absolute bottom-6 left-12 text-sm text-gray-500 font-lora">{leftPageNum}</p>
+                </div>
+
+                {/* Spine */}
+                <div className="w-6 bg-[#312E2B] shadow-inner" style={{ backgroundImage: 'linear-gradient(to right, rgba(0,0,0,0.4) 0%, rgba(255,255,255,0.1) 50%, rgba(0,0,0,0.4) 100%)' }}></div>
+                
+                {/* Right Page */}
+                <div className="w-1/2 p-12 bg-[#FBF6EE] text-black overflow-hidden font-lora relative rounded-r-lg shadow-[inset_10px_0_15px_-10px_rgba(0,0,0,0.4)]" style={{ backgroundImage: `url('${paperTextureUrl}')`}}>
+                   {rightPageNum <= totalContentPages && (
+                     <>
+                        <div style={{ transform: `translateY(-${(rightPageNum - 1) * pageHeight}px)`}}>
+                            <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: htmlContent }}/>
+                        </div>
+                        <p className="absolute bottom-6 right-12 text-sm text-gray-500 font-lora">{rightPageNum}</p>
+                     </>
+                   )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        
+        <div className="flex justify-between items-center pt-4 mt-auto text-white">
+            <button onClick={handlePrevPage} disabled={currentPage === 0 || isAnimating} className="px-4 py-2 bg-indigo-600 rounded disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors">
+                Previous
+            </button>
+            <div className="text-center">
+              <div className="flex gap-2 justify-center">
+                <button onClick={() => handleExport('pdf')} className="p-2 hover:bg-white/20 rounded-full" title="Export as PDF"><DownloadIcon className="w-5 h-5"/></button>
+                <button onClick={() => handleExport('docx')} className="p-2 hover:bg-white/20 rounded-full" title="Export as DOCX"><DownloadIcon className="w-5 h-5"/></button>
+                <button onClick={() => handleExport('html')} className="p-2 hover:bg-white/20 rounded-full" title="Export as HTML"><DownloadIcon className="w-5 h-5"/></button>
+                <button onClick={() => handleExport('md')} className="p-2 hover:bg-white/20 rounded-full" title="Export as Markdown"><DownloadIcon className="w-5 h-5"/></button>
+              </div>
+              <p className="text-sm text-gray-400 mt-1">
+                 {currentPage === 0 ? 'Cover' : `Spread ${currentPage} of ${totalSpreads}`}
+              </p>
+            </div>
+            <button onClick={handleNextPage} disabled={currentPage > totalSpreads || isAnimating} className="px-4 py-2 bg-indigo-600 rounded disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors">
+                Next
+            </button>
+        </div>
+      </div>
+    </div>
+  );
+}

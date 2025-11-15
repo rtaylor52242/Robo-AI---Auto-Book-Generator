@@ -1,12 +1,12 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppStep, Chapter, BookHistoryEntry } from './types';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition';
 import * as geminiService from './services/geminiService';
 import { StorybookViewer } from './components/StorybookViewer';
+import { HelpModal } from './components/HelpModal';
 import {
   BookOpenIcon, SparklesIcon, WandMagicSparklesIcon, PencilIcon, TrashIcon, DownloadIcon,
-  ChevronDownIcon, ChevronUpIcon, MicrophoneIcon, StopCircleIcon, ArrowPathIcon
+  ChevronDownIcon, ChevronUpIcon, MicrophoneIcon, StopCircleIcon, QuestionMarkCircleIcon
 } from './components/icons';
 
 const App: React.FC = () => {
@@ -28,6 +28,7 @@ const App: React.FC = () => {
   const [frontCoverImage, setFrontCoverImage] = useState('');
   const [backCoverImage, setBackCoverImage] = useState('');
 
+
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +36,7 @@ const App: React.FC = () => {
   const [expandedChapter, setExpandedChapter] = useState<number | null>(null);
   const [finalBookContent, setFinalBookContent] = useState('');
   const [isViewerOpen, setIsViewerOpen] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
 
   const [bookHistory, setBookHistory] = useState<BookHistoryEntry[]>([]);
   const [viewingHistory, setViewingHistory] = useState<BookHistoryEntry | null>(null);
@@ -47,6 +49,7 @@ const App: React.FC = () => {
       frontCoverImage, backCoverImage
     };
     localStorage.setItem('roboAiBookGenerator_progress', JSON.stringify(state));
+  // FIX: Removed authorNamePlacement from state and dependencies
   }, [appStep, title, subtitle, author, description, genre, category, tone, numChapters, wordsPerChapter, chapters, frontCoverPrompt, backCoverPrompt, frontCoverImage, backCoverImage]);
 
   useEffect(() => {
@@ -72,6 +75,7 @@ const App: React.FC = () => {
       setBackCoverPrompt(state.backCoverPrompt || '');
       setFrontCoverImage(state.frontCoverImage || '');
       setBackCoverImage(state.backCoverImage || '');
+      // FIX: Removed authorNamePlacement from local storage loading
     }
     
     const savedHistory = localStorage.getItem('roboAiBookGenerator_history');
@@ -129,10 +133,12 @@ const App: React.FC = () => {
     }
   };
 
+  // FIX: Removed logic to add author's name to image prompt, which is against image generation guidelines.
   const handleGenerateCover = async (type: 'front' | 'back' | 'both') => {
     setIsLoading(true);
     setLoadingMessage(`Generating ${type} cover...`);
     setError(null);
+
     try {
         if (type === 'front' || type === 'both') {
             const image = await geminiService.generateBookCoverImage(frontCoverPrompt);
@@ -200,6 +206,7 @@ const App: React.FC = () => {
         const newHistoryEntry: BookHistoryEntry = {
             id: new Date().toISOString(),
             title,
+            subtitle,
             author,
             content: fullContent,
             frontCoverImage,
@@ -214,20 +221,6 @@ const App: React.FC = () => {
     } finally {
         setIsLoading(false);
     }
-  };
-
-  const handleClearProject = () => {
-      if (window.confirm("Are you sure you want to clear the current project? All unsaved progress will be lost.")) {
-          localStorage.removeItem('roboAiBookGenerator_progress');
-          window.location.reload();
-      }
-  };
-
-  const handleWipeData = () => {
-      if (window.confirm("Are you sure you want to wipe ALL data? This will delete your current project and all saved book history. This action cannot be undone.")) {
-          localStorage.clear();
-          window.location.reload();
-      }
   };
 
   // === Derived State & Memos ===
@@ -267,13 +260,44 @@ const App: React.FC = () => {
           <div className="form-group">
               <label htmlFor="genre">Genre</label>
               <select id="genre" value={genre} onChange={e => setGenre(e.target.value)}>
-                  <option>Science Fiction</option><option>Fantasy</option><option>Mystery</option><option>Thriller</option><option>Romance</option><option>Horror</option><option>Non-Fiction</option>
+                  <option>Science Fiction</option>
+                  <option>Fantasy</option>
+                  <option>Mystery</option>
+                  <option>Thriller</option>
+                  <option>Romance</option>
+                  <option>Horror</option>
+                  <option>Literary Fiction</option>
+                  <option>True Crime</option>
+                  <option>Non-Fiction</option>
+                  <option>Self-Help & Personal Development</option>
+                  <option>Business & Money</option>
+                  <option>Health, Fitness & Dieting</option>
+                  <option>Biographies & Memoirs</option>
+                  <option>Cookbooks</option>
+                  <option>Parenting & Relationships</option>
+                  <option>History</option>
+                  <option>Religion & Spirituality</option>
+                  <option>Education & Test Prep</option>
               </select>
           </div>
            <div className="form-group">
               <label htmlFor="category">Category</label>
               <select id="category" value={category} onChange={e => setCategory(e.target.value)}>
-                  <option>Novel</option><option>Novella</option><option>Self-Help</option><option>Technical Manual</option><option>Biography</option>
+                  <option>Novel</option>
+                  <option>Novella</option>
+                  <option>Contemporary Romance</option>
+                  <option>Historical Romance</option>
+                  <option>Romantic Suspense</option>
+                  <option>Psychological Thriller</option>
+                  <option>Detective Novel</option>
+                  <option>Epic Fantasy</option>
+                  <option>Dystopian Fiction</option>
+                  <option>Space Opera</option>
+                  <option>Memoir</option>
+                  <option>Guide</option>
+                  <option>Cookbook</option>
+                  <option>Textbook</option>
+                  <option>Technical Manual</option>
               </select>
           </div>
            <div className="form-group">
@@ -304,9 +328,9 @@ const App: React.FC = () => {
     <>
       <h2 className="text-3xl font-bold text-center text-indigo-300">2. Design Your Covers</h2>
       <p className="text-center text-indigo-100/70 mb-8">Generate stunning visuals for your front and back covers.</p>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="flex flex-col sm:flex-row gap-8 justify-center items-start">
           {/* Front Cover */}
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 w-full sm:w-1/2 max-w-[250px] mx-auto">
               <h3 className="text-xl font-semibold text-center">Front Cover</h3>
               <div className="aspect-[3/4] bg-black/30 rounded-lg flex items-center justify-center border-2 border-dashed border-gray-600">
                   {frontCoverImage ? <img src={`data:image/jpeg;base64,${frontCoverImage}`} alt="Front Cover" className="object-cover w-full h-full rounded-lg" /> : <span className="text-gray-400">Image Preview</span>}
@@ -318,7 +342,7 @@ const App: React.FC = () => {
               <button onClick={() => handleGenerateCover('front')} className="btn-secondary">Generate Front Cover</button>
           </div>
           {/* Back Cover */}
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 w-full sm:w-1/2 max-w-[250px] mx-auto">
               <h3 className="text-xl font-semibold text-center">Back Cover</h3>
               <div className="aspect-[3/4] bg-black/30 rounded-lg flex items-center justify-center border-2 border-dashed border-gray-600">
                   {backCoverImage ? <img src={`data:image/jpeg;base64,${backCoverImage}`} alt="Back Cover" className="object-cover w-full h-full rounded-lg" /> : <span className="text-gray-400">Image Preview</span>}
@@ -330,6 +354,7 @@ const App: React.FC = () => {
               <button onClick={() => handleGenerateCover('back')} className="btn-secondary">Generate Back Cover</button>
           </div>
       </div>
+      {/* FIX: Removed author name placement UI as it's not supported by the image generation API */}
        <div className="flex flex-col md:flex-row gap-4 mt-8">
           <button onClick={() => setAppStep(AppStep.CONFIG)} className="btn-secondary flex-1">Back to Config</button>
           <button onClick={() => handleGenerateCover('both')} className="btn-secondary flex-1">Generate Both Covers</button>
@@ -431,6 +456,10 @@ const App: React.FC = () => {
           color: white;
           width: 100%;
         }
+        .form-group select option {
+          background-color: #111827;
+          color: white;
+        }
         .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
           outline: none;
           border-color: #6366f1;
@@ -454,9 +483,17 @@ const App: React.FC = () => {
         .btn-secondary:hover { background-color: rgba(255,255,255,0.2); }
         .btn-secondary:disabled { background-color: rgba(255,255,255,0.05); color: rgba(255,255,255,0.4); cursor: not-allowed; }
       `}</style>
-      <header className="text-center">
+      <header className="text-center w-full max-w-3xl relative">
         <h1 className="text-4xl sm:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-300 via-purple-400 to-indigo-300">Robo AI</h1>
         <p className="text-lg text-indigo-200">Auto Book Generator</p>
+        <button 
+            onClick={() => setIsHelpOpen(true)}
+            className="absolute top-0 right-0 p-2 text-indigo-300 hover:text-white transition-colors"
+            title="Help"
+            aria-label="Open help dialog"
+        >
+            <QuestionMarkCircleIcon className="w-8 h-8" />
+        </button>
       </header>
       
       {appStep === AppStep.CONFIG && (
@@ -476,20 +513,7 @@ const App: React.FC = () => {
         {appStep === AppStep.WRITING && renderWritingScreen()}
       </main>
 
-      <div className="flex flex-col md:flex-row gap-8 items-start">
-        {renderHistoryPanel()}
-        <div className="w-full max-w-sm p-4 bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg">
-            <h3 className="font-bold text-lg text-indigo-300 mb-4">Data Management</h3>
-            <div className="flex flex-col gap-2">
-                <button onClick={handleClearProject} className="btn-secondary text-sm justify-start">
-                    <ArrowPathIcon className="w-4 h-4" /> Clear Current Project
-                </button>
-                <button onClick={handleWipeData} className="btn-secondary text-sm text-red-300 border-red-500/50 hover:bg-red-500/20 justify-start">
-                    <TrashIcon className="w-4 h-4" /> Wipe All Data
-                </button>
-            </div>
-        </div>
-      </div>
+      {renderHistoryPanel()}
 
       {isLoading && (
         <div className="fixed inset-0 bg-black/80 flex flex-col items-center justify-center gap-4 z-50">
@@ -498,10 +522,13 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {isHelpOpen && <HelpModal onClose={() => setIsHelpOpen(false)} />}
+
       {(isViewerOpen || viewingHistory) && (
         <StorybookViewer
           bookContent={viewingHistory ? viewingHistory.content : finalBookContent}
           bookTitle={viewingHistory ? viewingHistory.title : title}
+          subtitle={viewingHistory ? viewingHistory.subtitle : subtitle}
           author={viewingHistory ? viewingHistory.author : author}
           frontCoverImage={viewingHistory ? viewingHistory.frontCoverImage : frontCoverImage}
           onClose={() => {

@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
@@ -95,13 +94,17 @@ export const generateBookCoverPrompt = async (title: string, subtitle: string, d
   Book Title: "${title}"
   Book Subtitle: "${subtitle}"
   Book Description: "${description}"
-  Author: ${author}
   
-  Based on these details, generate a descriptive and artistic prompt for the ${type} cover. 
-  For the front cover, focus on a central, iconic image that captures the book's essence.
-  For the back cover, suggest a more subtle or complementary design, perhaps leaving space for text.
-  The prompt should be evocative and detailed, mentioning style, color palette, and mood. For example: "Epic fantasy landscape, cinematic lighting, hyperrealistic, a lone castle on a mountain peak under a stormy sky, style of Rembrandt."
-  Do not include the text of the title or author in the prompt itself.
+  Based on these details, generate a descriptive and artistic prompt for the **${type} cover**. 
+  
+  **Instructions for the ${type} cover:**
+  ${type === 'front' 
+    ? "Focus on a central, iconic image that captures the book's essence. The prompt should be evocative and detailed, mentioning style, color palette, and mood." 
+    : "The design must look like a book's **back cover**. It should be complementary to the front cover's theme but more subdued. Crucially, it must incorporate placeholders or clear, empty spaces for: a book summary (blurb), a small author photo, and a barcode area. The prompt should describe a background image or design that allows for this text and other elements to be overlaid later."}
+
+  Example prompt format: "Epic fantasy landscape, cinematic lighting, hyperrealistic, a lone castle on a mountain peak under a stormy sky, style of Rembrandt."
+  
+  **IMPORTANT**: The generated prompt is for an AI that creates **images only**. Do NOT include any text like the title or author's name in the prompt you generate. The prompt should describe the visual elements of the cover art.
   `;
 
   const response = await ai.models.generateContent({
